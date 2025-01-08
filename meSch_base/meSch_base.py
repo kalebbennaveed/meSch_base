@@ -45,6 +45,10 @@ class meSchBaseNode(Node):
         self.pub_px4_101_meSch = self.create_publisher(BaseToQuadMesch, "/px4_101/gs/meSch_base_central", 10)
         self.pub_px4_102_meSch = self.create_publisher(BaseToQuadMesch, "/px4_102/gs/meSch_base_central", 10)
 
+        self.pub_meSch_vec = np.array([self.pub_px4_100_meSch,
+                                    self.pub_px4_101_meSch,
+                                    self.pub_px4_102_meSch])
+
         # Subs
         self.sub_px4_100_meSch = self.create_subscription(
             QuadToBaseMesch,
@@ -94,10 +98,13 @@ class meSchBaseNode(Node):
         self.quad_data_entries.append(DataEntry(quad_name, cand_id, remaining_flight_time))
 
         if len(self.quad_data_entries) == self.quad_num:
-            self.meSch_central_base()
-            self.quad_data_entries = []
+            if (all_same_cand_ids = len(set(entry.cand_id for entry in self.quad_data_entries)) == 1):
+                self.meSch_central_base()
+                self.quad_data_entries = []
+            else:
+                ## Hopefully this never gets executed
+                self.get_logger().info('CAND_IDS ARE NOT SAME')
 
-        ## if here implies all quads have published there
 
 
     def meSch_central_base(self):
@@ -121,8 +128,77 @@ class meSchBaseNode(Node):
         if gap_violation == True:
             self.get_logger().info(f'Gap flag failed; {sorted_quad_data[0].quad_name} landing')
 
-            ## Publish the response back for quads
+
+        ## Get the name of the returning quad
+        returning_quad_name = sorted_quad_data[0].quad_name
+        # Iterate over the publisher array
+
+        # Publish the response back for quads
+        for i, entry in enumerate(sorted_quad_data):
+            # Reset cand_id for each publish
+            self.BaseToQuadMesch.cand_id = entry.cand_id
             
+            # Set commit_cand_traj to False for the returning quad, True for the others
+            self.BaseToQuadMesch.commit_cand_traj = (entry.quad_name != returning_quad_name)
+
+            # Publish to the respective quad based on the index
+            publishers[i].publish(self.BaseToQuadMesch)
+
+            # Log the action
+            self.get_logger().info(f"Published to {quad_names[i]} with commit_cand_traj={self.BaseToQuadMesch.commit_cand_traj}")
+
+
+
+            ## Publish the response back for quads
+            if sorted_quad_data[0].quad_name == "px4_100":
+                ## Commit for all but px4_100
+                self.BaseToQuadMesch.cand_id = sorted_quad_data[0].cand_id
+                self.BaseToQuadMesch.commit_cand_traj = False
+                self.pub_px4_100_meSch.publish(self.BaseToQuadMesch)
+
+                ## Commit for all but px4_100
+                self.BaseToQuadMesch.cand_id = sorted_quad_data[0].cand_id
+                self.BaseToQuadMesch.commit_cand_traj = True
+                self.pub_px4_101_meSch.publish(self.BaseToQuadMesch) 
+
+                ## Commit for all but px4_100
+                self.BaseToQuadMesch.cand_id = sorted_quad_data[0].cand_id
+                self.BaseToQuadMesch.commit_cand_traj = True
+                self.pub_px4_102_meSch.publish(self.BaseToQuadMesch) 
+
+            elif  sorted_quad_data[0].quad_name == "px4_101":
+                ## Commit for all but px4_100
+                self.BaseToQuadMesch.cand_id = sorted_quad_data[0].cand_id
+                self.BaseToQuadMesch.commit_cand_traj = True
+                self.pub_px4_100_meSch.publish(self.BaseToQuadMesch)
+
+                ## Commit for all but px4_100
+                self.BaseToQuadMesch.cand_id = sorted_quad_data[0].cand_id
+                self.BaseToQuadMesch.commit_cand_traj = False
+                self.pub_px4_101_meSch.publish(self.BaseToQuadMesch) 
+
+                ## Commit for all but px4_100
+                self.BaseToQuadMesch.cand_id = sorted_quad_data[0].cand_id
+                self.BaseToQuadMesch.commit_cand_traj = True
+                self.pub_px4_102_meSch.publish(self.BaseToQuadMesch)
+
+            elif sorted_quad_data[0].quad_name == "px4_102":
+                ## Commit for all but px4_100
+                self.BaseToQuadMesch.cand_id = sorted_quad_data[0].cand_id
+                self.BaseToQuadMesch.commit_cand_traj = True
+                self.pub_px4_100_meSch.publish(self.BaseToQuadMesch)
+
+                ## Commit for all but px4_100
+                self.BaseToQuadMesch.cand_id = sorted_quad_data[0].cand_id
+                self.BaseToQuadMesch.commit_cand_traj = True
+                self.pub_px4_101_meSch.publish(self.BaseToQuadMesch) 
+
+                ## Commit for all but px4_100
+                self.BaseToQuadMesch.cand_id = sorted_quad_data[0].cand_id
+                self.BaseToQuadMesch.commit_cand_traj = False
+                self.pub_px4_102_meSch.publish(self.BaseToQuadMesch)               
+
+
 
 
 def main(args = None):
