@@ -52,19 +52,19 @@ class meSchBaseNode(Node):
         # Subs
         self.sub_px4_100_meSch = self.create_subscription(
             QuadToBaseMesch,
-            'px4_100/meSch_quad_status',
+            '/px4_100/meSch_quad_status',
             self.px4_100_meSch_cb,
             qos_profile_sensor_data)
 
         self.sub_px4_101_meSch = self.create_subscription(
             QuadToBaseMesch,
-            'px4_101/meSch_quad_status',
+            '/px4_101/meSch_quad_status',
             self.px4_101_meSch_cb,
             qos_profile_sensor_data)
 
         self.sub_px4_102_meSch = self.create_subscription(
             QuadToBaseMesch,
-            'px4_102/meSch_quad_status',
+            '/px4_102/meSch_quad_status',
             self.px4_102_meSch_cb,
             qos_profile_sensor_data)
 
@@ -111,15 +111,15 @@ class meSchBaseNode(Node):
 
         ## Sort the numbers
         gap_flags = []
-        sorted_quad_data = sorted(self.quad_data_entries, key=Lambda x:x.remaining_flight_time)
+        sorted_quad_data = sorted(self.quad_data_entries, key=lambda x:x.remaining_flight_time)
         self.get_logger().info('Sorted quad data:')
         for entry in sorted_quad_data:
             self.get_logger().info(f'{entry.quad_name}, {entry.cand_id}, {entry.remaining_flight_time}')
 
         ## Compute the gap flags
-        for i = len(sorted_quad_data):-1:2 :
+        for i in range(len(sorted_quad_data)-1, 0, -1):
             gap_distance_i = sorted_quad_data[i].remaining_flight_time - (self.cand_traj_time + self.cand_replanning_time)
-            gap_flag_i = gap_distance_i > (((i - 1) * self.req_gap))
+            gap_flag_i = gap_distance_i > ((i * self.req_gap))
             gap_flags.append(gap_flag_i)
 
         ## Compute the 
@@ -128,86 +128,37 @@ class meSchBaseNode(Node):
         if gap_violation == True:
             self.get_logger().info(f'Gap flag failed; {sorted_quad_data[0].quad_name} landing')
 
+            ## Get the name of the returning quad
+            returning_quad_name = sorted_quad_data[0].quad_name
+            # Iterate over the publisher array
 
-        ## Get the name of the returning quad
-        returning_quad_name = sorted_quad_data[0].quad_name
-        # Iterate over the publisher array
+            # Publish the response back for quads
+            for i, entry in enumerate(sorted_quad_data):
+                # Reset cand_id for each publish
+                self.BaseToQuadMesch.cand_id = entry.cand_id
+                
+                # Set commit_cand_traj to False for the returning quad, True for the others
+                self.BaseToQuadMesch.commit_cand_traj = (entry.quad_name != returning_quad_name)
 
-        # Publish the response back for quads
-        for i, entry in enumerate(sorted_quad_data):
-            # Reset cand_id for each publish
-            self.BaseToQuadMesch.cand_id = entry.cand_id
-            
-            # Set commit_cand_traj to False for the returning quad, True for the others
-            self.BaseToQuadMesch.commit_cand_traj = (entry.quad_name != returning_quad_name)
+                # Publish to the respective quad based on the index
+                self.pub_meSch_vec[i].publish(self.BaseToQuadMesch)
 
-            # Publish to the respective quad based on the index
-            publishers[i].publish(self.BaseToQuadMesch)
+                # Log the action
+                self.get_logger().info(f"Published to {quad_names[i]} with commit_cand_traj={self.BaseToQuadMesch.commit_cand_traj}")
 
-            # Log the action
-            self.get_logger().info(f"Published to {quad_names[i]} with commit_cand_traj={self.BaseToQuadMesch.commit_cand_traj}")
-
-
-
-            ## Publish the response back for quads
-            if sorted_quad_data[0].quad_name == "px4_100":
-                ## Commit for all but px4_100
-                self.BaseToQuadMesch.cand_id = sorted_quad_data[0].cand_id
-                self.BaseToQuadMesch.commit_cand_traj = False
-                self.pub_px4_100_meSch.publish(self.BaseToQuadMesch)
-
-                ## Commit for all but px4_100
-                self.BaseToQuadMesch.cand_id = sorted_quad_data[0].cand_id
-                self.BaseToQuadMesch.commit_cand_traj = True
-                self.pub_px4_101_meSch.publish(self.BaseToQuadMesch) 
-
-                ## Commit for all but px4_100
-                self.BaseToQuadMesch.cand_id = sorted_quad_data[0].cand_id
-                self.BaseToQuadMesch.commit_cand_traj = True
-                self.pub_px4_102_meSch.publish(self.BaseToQuadMesch) 
-
-            elif  sorted_quad_data[0].quad_name == "px4_101":
-                ## Commit for all but px4_100
-                self.BaseToQuadMesch.cand_id = sorted_quad_data[0].cand_id
-                self.BaseToQuadMesch.commit_cand_traj = True
-                self.pub_px4_100_meSch.publish(self.BaseToQuadMesch)
-
-                ## Commit for all but px4_100
-                self.BaseToQuadMesch.cand_id = sorted_quad_data[0].cand_id
-                self.BaseToQuadMesch.commit_cand_traj = False
-                self.pub_px4_101_meSch.publish(self.BaseToQuadMesch) 
-
-                ## Commit for all but px4_100
-                self.BaseToQuadMesch.cand_id = sorted_quad_data[0].cand_id
-                self.BaseToQuadMesch.commit_cand_traj = True
-                self.pub_px4_102_meSch.publish(self.BaseToQuadMesch)
-
-            elif sorted_quad_data[0].quad_name == "px4_102":
-                ## Commit for all but px4_100
-                self.BaseToQuadMesch.cand_id = sorted_quad_data[0].cand_id
-                self.BaseToQuadMesch.commit_cand_traj = True
-                self.pub_px4_100_meSch.publish(self.BaseToQuadMesch)
-
-                ## Commit for all but px4_100
-                self.BaseToQuadMesch.cand_id = sorted_quad_data[0].cand_id
-                self.BaseToQuadMesch.commit_cand_traj = True
-                self.pub_px4_101_meSch.publish(self.BaseToQuadMesch) 
-
-                ## Commit for all but px4_100
-                self.BaseToQuadMesch.cand_id = sorted_quad_data[0].cand_id
-                self.BaseToQuadMesch.commit_cand_traj = False
-                self.pub_px4_102_meSch.publish(self.BaseToQuadMesch)               
-
-
-
+        else:
+            self.get_logger().info('All gaps met; Committing all')
+            for i in range(len(self.pub_meSch_vec)):
+                self.BaseToQuadMesch.cand_id = entry.cand_id
+                self.BaseToQuadMesch.commit_cand_traj = True 
+                self.pub_meSch_vec[i].publish(self.BaseToQuadMesch)
 
 def main(args = None):
     rclpy.init(args=args)
-    node = EwareSetpointPubNode()
+    node = meSchBaseNode()
     rclpy.spin(node)
     node.destroy_node()
     rclpy.shutdown()
-
 
 if __name__ == '__main__':
     main()
