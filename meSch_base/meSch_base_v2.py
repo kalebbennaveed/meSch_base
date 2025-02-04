@@ -40,6 +40,12 @@ class meSchBaseNode(Node):
         self.req_gap = 10.0
         self.gap_flags = []
 
+
+        ## Candidate trajectories pre-compilation (specific to Julia)
+        self.px4_100_precomp_done = False
+        self.px4_101_precomp_done = False
+        self.px4_102_precomp_done = False
+
         # Pubs
         self.pub_px4_100_meSch = self.create_publisher(BaseToQuadMesch, "/px4_100/gs/meSch_base_central", 10)
         self.pub_px4_101_meSch = self.create_publisher(BaseToQuadMesch, "/px4_101/gs/meSch_base_central", 10)
@@ -48,6 +54,15 @@ class meSchBaseNode(Node):
         self.pub_meSch_vec = np.array([self.pub_px4_100_meSch,
                                     self.pub_px4_101_meSch,
                                     self.pub_px4_102_meSch])
+
+
+        # Mission Status sub
+        self.sub_mission_status_ = self.create_subscription(
+            MeschMissionStatus,
+            '/px4/gs/mesch_mission_status', # Right now the name is fixed; TODO: Give as an arg
+            self.mission_status_cb,
+            10
+        )        
 
         # Subs
         self.sub_px4_100_meSch = self.create_subscription(
@@ -68,15 +83,49 @@ class meSchBaseNode(Node):
             self.px4_102_meSch_cb,
             qos_profile_sensor_data)
 
+
         # Create a message instance and reuse it 
         self.BaseToQuadMesch = BaseToQuadMesch()
         self.QuadToBaseMesch = QuadToBaseMesch()
         self.get_logger().info("Done initializing")   
 
+    def mission_status_cb(self, mission_status_msg):
+        # self.get_logger().info("Checking msg")
+        if (mission_status_msg.mission_start == False) and (mission_status_msg.mission_quit == False):
+
+            self.precomp_done == (self.px4_100_precomp_done && self.px4_101_precomp_done && self.px4_102_precomp_done)
+
+            if self.precomp_done == False:
+                # Send msg to each quad to generate the candidate trajectory
+                if self.px4_100_precomp_done == False:
+                    self.BaseToQuadMesch.precomp_traj = True
+                    self.pub_px4_100_meSch.publish(self.BaseToQuadMesch)
+
+                if self.px4_101_precomp_done == False:
+                    self.BaseToQuadMesch.precomp_traj = True
+                    self.pub_px4_101_meSch.publish(self.BaseToQuadMesch)
+
+                if self.px4_102_precomp_done == False:
+                    self.BaseToQuadMesch.precomp_traj = True
+                    self.pub_px4_102_meSch.publish(self.BaseToQuadMesch)
+
+        # If the precompilation is done and signal is received from the setpoint node to start the timer, start it
+        elif (mission_status_msg.mission_start == True) and (mission_status_msg.mission_quit == False) and (self.cand_timer_state == True):
+            # If the timers aren't already running, start them
+            if self.CandTraj_Timer_ is None:
+                self.start_timers()
+        elif ((mission_status_msg.mission_start == False) and (mission_status_msg.mission_quit == True)) or (self.cand_timer_state == False):
+            if self.CandTraj_Timer_ is not None:
+                self.stop_timers()    
+
+
+
+
     def px4_100_meSch_cb(self, px4_100_meSch_msg):
         self.px4_100_meSch_quad_name = px4_100_meSch_msg.quad_name
         self.px4_100_meSch_cand_id = px4_100_meSch_msg.cand_id
         self.px4_100_meSch_remaining_flight_time = px4_100_meSch_msg.remaining_flight_time
+        self.px4_100_precomp_done = px4_100_meSch_msg.precomp_done
         add_quad_data(self.px4_100_meSch_quad_name, self.px4_100_meSch_cand_id, self.px4_100_meSch_remaining_flight_time)
 
 
@@ -84,12 +133,14 @@ class meSchBaseNode(Node):
         self.px4_101_meSch_quad_name = px4_101_meSch_msg.quad_name
         self.px4_101_meSch_cand_id = px4_101_meSch_msg.cand_id
         self.px4_101_meSch_remaining_flight_time = px4_101_meSch_msg.remaining_flight_time
+        self.px4_101_precomp_done = px4_101_meSch_msg.precomp_done
         add_quad_data(self.px4_101_meSch_quad_name, self.px4_101_meSch_cand_id, self.px4_101_meSch_remaining_flight_time)
 
     def px4_102_meSch_cb(self, px4_102_meSch_msg):
         self.px4_102_meSch_quad_name = px4_102_meSch_msg.quad_name
         self.px4_102_meSch_cand_id = px4_102_meSch_msg.cand_id
         self.px4_102_meSch_remaining_flight_time = px4_102_meSch_msg.remaining_flight_time
+        self.px4_102_precomp_done = px4_102_meSch_msg.precomp_done
         add_quad_data(self.px4_102_meSch_quad_name, self.px4_102_meSch_cand_id, self.px4_102_meSch_remaining_flight_time)
 
     def add_quad_data(self, quad_name, cand_id, remaining_flight_time):
