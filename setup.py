@@ -20,7 +20,8 @@ setup(
     tests_require=['pytest'],
     entry_points={
         'console_scripts': [
-            'meSch_central_node = meSch_base.meSch_base_q1:main',
+            'meSch_central_node = meSch_base.meSch_base_test:main',
+
         ],
     },
 )
