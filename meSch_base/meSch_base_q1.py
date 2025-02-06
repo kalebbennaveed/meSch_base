@@ -4,6 +4,8 @@ import rclpy
 from rclpy.node import Node
 from rclpy.qos import qos_profile_sensor_data
 from rclpy.duration import Duration
+from rclpy.executors import MultiThreadedExecutor
+
 
 from dasc_msgs.msg import QuadToBaseMesch, BaseToQuadMesch, MeschMissionStatus
 import builtin_interfaces.msg 
@@ -60,7 +62,7 @@ class meSchBaseNode(Node):
 
         ## Create the quad objects
         self.quad_objects = [
-            QuadObj("px4_100", 0, "Grounded", 120.0, True, 0, px4_100_int_soc, 0.0, False),
+            QuadObj("px4_1001", 0, "Grounded", 120.0, True, 0, px4_100_int_soc, 0.0, False),
         ]
 
         ## Candidate trajectories pre-compilation (specific to Julia)
@@ -97,16 +99,20 @@ class meSchBaseNode(Node):
         self.get_logger().info("Done initializing")   
 
     def px4_100_meSch_cb(self, px4_100_meSch_msg):
+        # self.get_logger().info(f"Received message: {px4_100_meSch_msg}")
+        # self.get_logger().info(f"Before update: {self.quad_objects[0]}")
         self.quad_objects[0].quad_name = px4_100_meSch_msg.quad_name
         self.quad_objects[0].cand_id = px4_100_meSch_msg.cand_id
         self.quad_objects[0].remaining_flight_time = px4_100_meSch_msg.remaining_flight_time
         self.quad_objects[0].precomp_done = px4_100_meSch_msg.precomp_done
         self.quad_objects[0].mission = px4_100_meSch_msg.mission
+        # self.get_logger().info(f"After update: {self.quad_objects[0]}")
+        # self.get_logger().info("Updated message") 
 
     def mission_status_cb(self, mission_status_msg):
         # self.get_logger().info("Checking msg")
         # Mission not started yet
-        if (mission_status_msg.mission_start == False) and (mission_status_msg.mission_quit == False):
+        if (mission_status_msg.mission_start == False) and (mission_status_msg.mission_quit == False) and (self.precomp_done == False):
             ## For test
             self.precomp_done = (self.quad_objects[0].precomp_done)
             if self.precomp_done == True:
@@ -162,17 +168,25 @@ class meSchBaseNode(Node):
 
         # Track which quads are in a mission
         active_quads = [i for i, quad in enumerate(self.quad_objects) if quad.mission]
+        self.get_logger().info(f'Active Quads; {active_quads}')
 
         # Publish to only those quads that are in a mission
-        self.get_logger().info('[From base] Gen new set of candidate') 
         for i in active_quads:
+            self.get_logger().info(f'[From base] Gen new set of candidate {i}') 
             self.pub_meSch_vec[i].publish(self.BaseToQuadMesch)
+
         
+        self.get_logger().info(f'self.object vale{self.quad_objects[0].quad_name}') 
+
         # Wait until all active quads have updated their cand_id
         if active_quads:
             while not all(self.quad_objects[i].cand_id == self.cand_id for i in active_quads):
-                self.get_logger().info("Precompilation not finished yet")
-                rclpy.spin_once(self, timeout_sec=0.05)  # Check every 50 ms every cand_id updated
+                for i in active_quads:
+                    self.get_logger().info(f'self.quad_objects[i].cand_id; {self.quad_objects[i].cand_id }')
+                self.get_logger().info(f'Curr base Cand ID; {self.cand_id }')
+                self.get_logger().info(f'Curr Quad Cand ID; {self.quad_objects[i].cand_id}')
+                self.get_logger().info("Waiting for candidate trajs to be available")
+                rclpy.spin_once(self, timeout_sec=0.5)
 
 
         # After exiting the while loop, compute gap flags for active robots
@@ -220,9 +234,23 @@ class meSchBaseNode(Node):
 def main(args = None):
     rclpy.init(args=args)
     node = meSchBaseNode()
+    executor = rclpy.executors.MultiThreadedExecutor()
+    executor.add_node(node)
     rclpy.spin(node)
     node.destroy_node()
     rclpy.shutdown()
+    # rclpy.init(args=args)
+    # node = meSchBaseNode()
+    # executor = MultiThreadedExecutor()
+    # executor.add_node(node)
+
+    # try:
+    #     executor.spin()  # Multi-threaded execution for timers and subscribers
+    # except KeyboardInterrupt:
+    #     pass  # Gracefully handle Ctrl+C
+    # finally:
+    #     node.destroy_node()  # Ensure the node is properly destroyed
+    #     rclpy.shutdown()  # Shutdown ROS2 cleanl
 
 if __name__ == '__main__':
     main()
