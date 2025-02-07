@@ -35,7 +35,6 @@ class QuadObj:
     int_soc: float
     charge_start_time: float
     precomp_done:bool
-    awaiting_response:bool
 
 class meSchBaseNode(Node):
 
@@ -50,7 +49,7 @@ class meSchBaseNode(Node):
         self.cand_traj_time = 10.0
         self.cand_replanning_time = 1.0
         self.req_gap = 10.0
-        self.cand_id = 0
+        self.curr_cand_id = 0
         self.ComTraj_update_rate = 1.0
         self.precomp_done = False
         
@@ -60,13 +59,11 @@ class meSchBaseNode(Node):
         ##  Timers
         self.CandTrajTimer_started = False
         self.SetpointPubTimer_started = False
-        self.awaiting_response = False
-        self.condition = threading.Condition()
-        self.response_received = False
+        self.evaluate_candidate_trajs = False
 
         ## Create the quad objects
         self.quad_objects = [
-            QuadObj("px4_1001", 0, "Grounded", 120.0, True, 0, px4_100_int_soc, 0.0, False, False),
+            QuadObj("px4_1001", 0, "Grounded", 120.0, True, 0, px4_100_int_soc, 0.0, False),
         ]
 
         ## Candidate trajectories pre-compilation (specific to Julia)
@@ -103,27 +100,15 @@ class meSchBaseNode(Node):
         self.get_logger().info("Done initializing")   
 
     def px4_100_meSch_cb(self, px4_100_meSch_msg):
-        # self.get_logger().info(f"Received message: {px4_100_meSch_msg}")
-        # self.get_logger().info(f"Before update: {self.quad_objects[0]}")
-        if self.awaiting_response:
-            with condition:
-                self.get_logger().info("In condition")
-                self.quad_objects[0].quad_name = px4_100_meSch_msg.quad_name
-                self.quad_objects[0].cand_id = px4_100_meSch_msg.cand_id
-                self.quad_objects[0].remaining_flight_time = px4_100_meSch_msg.remaining_flight_time
-                self.quad_objects[0].precomp_done = px4_100_meSch_msg.precomp_done
-                self.quad_objects[0].mission = px4_100_meSch_msg.mission
-                self.response_received = True
-                self.condition.notify()
+        self.quad_objects[0].quad_name = px4_100_meSch_msg.quad_name
+        self.quad_objects[0].cand_id = px4_100_meSch_msg.cand_id
+        self.quad_objects[0].remaining_flight_time = px4_100_meSch_msg.remaining_flight_time
+        self.quad_objects[0].precomp_done = px4_100_meSch_msg.precomp_done
+        self.quad_objects[0].mission = px4_100_meSch_msg.mission
 
-        else:
-            self.quad_objects[0].quad_name = px4_100_meSch_msg.quad_name
-            self.quad_objects[0].cand_id = px4_100_meSch_msg.cand_id
-            self.quad_objects[0].remaining_flight_time = px4_100_meSch_msg.remaining_flight_time
-            self.quad_objects[0].precomp_done = px4_100_meSch_msg.precomp_done
-            self.quad_objects[0].mission = px4_100_meSch_msg.mission
-        # self.get_logger().info(f"After update: {self.quad_objects[0]}")
-        # self.get_logger().info("Updated message") 
+        if self.evaluate_candidate_trajs:
+            self.get_logger().info('Evaluation from px4_100')
+            self.Evaluate_trajectories()
 
     def mission_status_cb(self, mission_status_msg):
         # self.get_logger().info("Checking msg")
@@ -178,52 +163,30 @@ class meSchBaseNode(Node):
     def ComTraj_callback(self):
         # Generate candidate trajectories
 
-        self.cand_id += 1
-        self.BaseToQuadMesch.cand_id = self.cand_id
+        self.curr_cand_id += 1
+        self.BaseToQuadMesch.cand_id = self.curr_cand_id
         self.BaseToQuadMesch.cand_time = time.time() - self.com_start_time_
-        self.get_logger().info(f'Current Cand Time; {self.BaseToQuadMesch.cand_time}')
+        self.get_logger().info(f'--Current Cand Time; {self.BaseToQuadMesch.cand_time}')
 
         # Track which quads are in a mission
-        active_quads = [i for i, quad in enumerate(self.quad_objects) if quad.mission]
-        self.get_logger().info(f'Active Quads; {active_quads}')
+        self.active_quads = [i for i, quad in enumerate(self.quad_objects) if quad.mission]
+        self.get_logger().info(f'Active Quads; {self.active_quads}')
 
         # Publish to only those quads that are in a mission
-        for i in active_quads:
+        for i in self.active_quads:
             self.get_logger().info(f'[From base] Gen new set of candidate {i}') 
             self.pub_meSch_vec[i].publish(self.BaseToQuadMesch)
-            # self.quad_objects[i].awaiting_response = True
-        self.awaiting_response = True
-        self.get_logger().info(f'self.object vale{self.quad_objects[0].quad_name}') 
-
-        # Wait until all active quads have updated their cand_id
-        with self.condition:
-            self.condition.wait_for(lambda: self.response_received, timeout=0.5)  # 5s timeout
-            self.awaiting_response = False
-            if self.response_received:
-                self.get_logger().info(f'Received response: {self.quad_objects[0].cand_id}')
-                self.get_logger().info(f'at time; {time.time() - self.com_start_time_}')
-                self.get_logger().info(f'Curr base Cand ID; {self.cand_id }')
-                self.get_logger().info(f'Curr Quad Cand ID; {self.quad_objects[0].cand_id}')
-                self.response_received = False  # Reset flag
-            else:
-                self.get_logger().warn('Response timed out!')
+        self.evaluate_candidate_trajs = True
+        self.get_logger().info('Instructed to generate trajjectories') 
 
 
-        # if active_quads:
-        #     while not all(self.quad_objects[i].cand_id == self.cand_id for i in active_quads):
-        #         for i in active_quads:
-        #             self.get_logger().info(f'self.quad_objects[i].cand_id; {self.quad_objects[i].cand_id }')
-        #         self.get_logger().info(f'Curr base Cand ID; {self.cand_id }')
-        #         self.get_logger().info(f'Curr Quad Cand ID; {self.quad_objects[i].cand_id}')
-        #         self.get_logger().info("Waiting for candidate trajs to be available")
-        #         rclpy.spin_once(self, timeout_sec=0.5)
-
-
-        # After exiting the while loop, compute gap flags for active robots
-        if active_quads:
-            # Sort the active quads based on remaining flight time
+    def Evaluate_trajectories(self):
+        if (all(self.quad_objects[i].cand_id == self.curr_cand_id for i in self.active_quads)) == True:
+            self.get_logger().info(f'Evaluating candidate trajectories of ID; {self.curr_cand_id}')
+            self.get_logger().info(f'==Evaluation Time; {time.time() - self.com_start_time_}')
             gap_flags = []
-            sorted_quad_data = [quad for i, quad in enumerate(self.quad_objects) if i in active_quads]
+
+            sorted_quad_data = [quad for i, quad in enumerate(self.quad_objects) if i in self.active_quads]
             sorted_quad_data = sorted(sorted_quad_data, key=lambda x: x.remaining_flight_time)
 
             self.get_logger().info('Sorted quad data:')
@@ -247,7 +210,7 @@ class meSchBaseNode(Node):
                 returning_quad_name = sorted_quad_data[0].quad_name
 
                 # Publish the response back for quads
-                for i in active_quads:
+                for i in self.active_quads:
                     entry = self.quad_objects[i]
                     self.BaseToQuadMesch.commit_cand_traj = (entry.quad_name != returning_quad_name)
 
@@ -259,6 +222,13 @@ class meSchBaseNode(Node):
                 for i in range(len(self.pub_meSch_vec)):
                     self.BaseToQuadMesch.commit_cand_traj = True
                     self.pub_meSch_vec[i].publish(self.BaseToQuadMesch)
+
+            self.evaluate_candidate_trajs = False
+        else:
+            self.get_logger().info('All candidates not received yet')
+            return 
+
+        # After exiting the while loop, compute gap flags for active robots
 
 
 def main(args = None):
