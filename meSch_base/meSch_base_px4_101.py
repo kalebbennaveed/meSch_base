@@ -53,8 +53,8 @@ class meSchBaseNode(Node):
         self.ComTraj_update_rate = 1.0
         self.precomp_done = False
         
-        px4_100_charge_pos = np.array([2.525, 2.992, 0.880])
-        px4_100_int_soc = 80.0
+        px4_101_charge_pos = np.array([2.525, 2.992, 0.880])
+        px4_101_int_soc = 80.0
 
         ##  Timers
         self.CandTrajTimer_started = False
@@ -63,24 +63,24 @@ class meSchBaseNode(Node):
 
         ## Create the quad objects
         self.quad_objects = [
-            QuadObj("px4_1001", 0, "Grounded", 120.0, True, 0, px4_100_int_soc, 0.0, False),
+            QuadObj("px4_101", 0, "Grounded", 120.0, True, 0, px4_101_int_soc, 0.0, False),
         ]
 
         ## Candidate trajectories pre-compilation (specific to Julia)
-        self.px4_100_precomp_done = False
+        self.px4_101_precomp_done = False
 
         # Pubs
-        self.pub_px4_100_meSch = self.create_publisher(BaseToQuadMesch, "/px4_100/gs/base_to_quad", 10)
+        self.pub_px4_101_meSch = self.create_publisher(BaseToQuadMesch, "/px4_101/gs/base_to_quad", 10)
 
 
-        self.pub_meSch_vec = np.array([self.pub_px4_100_meSch])
+        self.pub_meSch_vec = np.array([self.pub_px4_101_meSch])
 
 
         # Subs
-        self.sub_px4_100_meSch = self.create_subscription(
+        self.sub_px4_101_meSch = self.create_subscription(
             QuadToBaseMesch,
-            "/px4_100/quad_to_base",
-            self.px4_100_meSch_cb,
+            "/px4_101/quad_to_base",
+            self.px4_101_meSch_cb,
             qos_profile_sensor_data)
 
         # Mission Status sub
@@ -93,21 +93,24 @@ class meSchBaseNode(Node):
 
 
         # Create a message instance and reuse it 
-        self.px4_100_BaseToQuadMesch = BaseToQuadMesch()
+        self.px4_101_BaseToQuadMesch = BaseToQuadMesch()
         self.BaseToQuadMesch = BaseToQuadMesch()
 
         self.QuadToBaseMesch = QuadToBaseMesch()
         self.get_logger().info("Done initializing")   
 
-    def px4_100_meSch_cb(self, px4_100_meSch_msg):
-        self.quad_objects[0].quad_name = px4_100_meSch_msg.quad_name
-        self.quad_objects[0].cand_id = px4_100_meSch_msg.cand_id
-        self.quad_objects[0].remaining_flight_time = px4_100_meSch_msg.remaining_flight_time
-        self.quad_objects[0].precomp_done = px4_100_meSch_msg.precomp_done
-        self.quad_objects[0].mission = px4_100_meSch_msg.mission
+    def px4_101_meSch_cb(self, px4_101_meSch_msg):
+        self.quad_objects[0].quad_name = px4_101_meSch_msg.quad_name
+        self.quad_objects[0].cand_id = px4_101_meSch_msg.cand_id
+        self.quad_objects[0].remaining_flight_time = px4_101_meSch_msg.remaining_flight_time
+        self.quad_objects[0].precomp_done = px4_101_meSch_msg.precomp_done
+        self.quad_objects[0].mission = px4_101_meSch_msg.mission
+        self.get_logger().info(f'cand_id received: {px4_101_meSch_msg.cand_id}')
+        self.get_logger().info(f'Curr cand_id: {self.curr_cand_id}')
+        self.get_logger().info(f'self.quad_objects[0].cand_id : {self.quad_objects[0].cand_id}')
 
         if self.evaluate_candidate_trajs:
-            self.get_logger().info('Evaluation from px4_100')
+            self.get_logger().info('Evaluation from px4_101')
             self.Evaluate_trajectories()
 
     def mission_status_cb(self, mission_status_msg):
@@ -144,14 +147,14 @@ class meSchBaseNode(Node):
         self.ComTraj_Timer_ = self.create_timer(1 / self.ComTraj_update_rate, self.ComTraj_callback)
 
         # Publish to the Quad to start the setpoint node
-        self.pub_px4_100_meSch.publish(self.BaseToQuadMesch)
+        self.pub_px4_101_meSch.publish(self.BaseToQuadMesch)
 
 
     def stop_timers(self):
         # Signal to stop the candidate trajectory timer in the other node
         self.BaseToQuadMesch.sp_timer_state = True
         # Publish to the Quad to start the setpoint node
-        self.pub_px4_100_meSch.publish(self.BaseToQuadMesch)
+        self.pub_px4_101_meSch.publish(self.BaseToQuadMesch)
 
         if self.ComTraj_Timer_ is not None:
             self.ComTraj_Timer_.destroy()
@@ -176,8 +179,8 @@ class meSchBaseNode(Node):
         for i in self.active_quads:
             self.get_logger().info(f'[From base] Gen new set of candidate {i}') 
             self.pub_meSch_vec[i].publish(self.BaseToQuadMesch)
-        self.evaluate_candidate_trajs = True
-        self.get_logger().info('Instructed to generate trajjectories') 
+            self.evaluate_candidate_trajs = True
+            self.get_logger().info('Instructed to generate trajjectories') 
 
 
     def Evaluate_trajectories(self):
